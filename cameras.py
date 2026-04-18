@@ -1,12 +1,31 @@
 import cv2
+import time
 
-cap = cv2.VideoCapture(0)
+camera_ids = [0, 1, 2]
+caps = []
+
+for i in camera_ids:
+    cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
+    time.sleep(1)  # 👈 important
+    if cap.isOpened():
+        print(f"Camera {i} opened")
+        caps.append(cap)
+    else:
+        print(f"Camera {i} failed to open")
 
 while True:
-    ret, frame = cap.read()
-    cv2.imshow('frame', frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    for idx, cap in enumerate(caps):
+        ret, frame = cap.read()
+        if not ret:
+            print(f"Camera {idx} read failed")
+            continue
+
+        cv2.imshow(f"Camera {idx}", frame)
+
+    if cv2.waitKey(1) & 0xFF == 27:
         break
 
-cap.release()
+for cap in caps:
+    cap.release()
+
 cv2.destroyAllWindows()
