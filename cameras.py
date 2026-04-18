@@ -5,7 +5,7 @@ import numpy as np
 import time
 
 class CameraStream:
-    def __init__(self, device_path, width=640, height=480, name="Cam"):
+    def __init__(self, device_path, width=320, height=240, name="Cam"):
         self.name = name
         self.frame = None
         self.running = True
