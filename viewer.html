@@ -1,0 +1,548 @@
+CTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YOLO · WebRTC Monitor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;600&display=swap');
+
+  :root {
+    --bg:      #0a0c0e;
+    --panel:   #111417;
+    --border:  #1e2530;
+    --accent:  #00dc5a;
+    --accent2: #00a8ff;
+    --warn:    #ff4545;
+    --text:    #c8d4e0;
+    --dim:     #4a5a6a;
+    --mono:    'Share Tech Mono', monospace;
+    --sans:    'Barlow', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
+
+  /* scanline overlay */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    gap: 16px;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  .logo span { color: var(--dim); }
+
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .pill {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    padding: 4px 10px;
+    border-radius: 2px;
+    border: 1px solid currentColor;
+    text-transform: uppercase;
+  }
+
+  .pill.offline  { color: var(--warn); border-color: var(--warn); }
+  .pill.online   { color: var(--accent); border-color: var(--accent); }
+  .pill.buffering{ color: var(--accent2); border-color: var(--accent2); }
+
+  /* ── Main grid ── */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    grid-template-rows: 1fr;
+    gap: 0;
+  }
+
+  /* ── Video pane ── */
+  .video-pane {
+    position: relative;
+    background: #000;
+    overflow: hidden;
+    border-right: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #remoteVideo {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  /* corner brackets */
+  .corner {
+    position: absolute;
+    width: 24px; height: 24px;
+    border-color: var(--accent);
+    border-style: solid;
+    opacity: 0.6;
+  }
+  .corner.tl { top: 12px; left: 12px;  border-width: 2px 0 0 2px; }
+  .corner.tr { top: 12px; right: 12px; border-width: 2px 2px 0 0; }
+  .corner.bl { bottom: 12px; left: 12px;  border-width: 0 0 2px 2px; }
+  .corner.br { bottom: 12px; right: 12px; border-width: 0 2px 2px 0; }
+
+  /* live pulse dot */
+  .live-badge {
+    position: absolute;
+    top: 16px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  .live-badge.visible { opacity: 1; }
+
+  .pulse-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(0,220,90,.6); }
+    50%      { box-shadow: 0 0 0 6px rgba(0,220,90,0); }
+  }
+
+  /* no-signal overlay */
+  .no-signal {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: #000;
+    transition: opacity 0.5s;
+  }
+  .no-signal.hidden { opacity: 0; pointer-events: none; }
+
+  .ns-icon {
+    width: 64px; height: 64px;
+    opacity: 0.15;
+  }
+
+  .ns-text {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+  }
+
+  .sidebar-section {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--dim);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  /* ── Stat rows ── */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.05em;
+  }
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--text);
+  }
+  .stat-value.accent  { color: var(--accent); }
+  .stat-value.accent2 { color: var(--accent2); }
+  .stat-value.warn    { color: var(--warn); }
+
+  /* ── Connect button ── */
+  #connectBtn {
+    width: 100%;
+    padding: 12px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    margin-top: 4px;
+  }
+  #connectBtn:hover:not(:disabled) {
+    background: var(--accent);
+    color: #000;
+  }
+  #connectBtn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  /* ── Log ── */
+  .log-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .log-entry {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--dim);
+    display: grid;
+    grid-template-columns: 68px 1fr;
+    gap: 8px;
+    animation: fadeIn 0.2s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } }
+
+  .log-time { color: #2a3a4a; }
+  .log-msg.ok   { color: var(--accent); }
+  .log-msg.info { color: var(--text); }
+  .log-msg.warn { color: var(--warn); }
+
+  /* scrollbar */
+  .log-area::-webkit-scrollbar { width: 4px; }
+  .log-area::-webkit-scrollbar-track { background: transparent; }
+  .log-area::-webkit-scrollbar-thumb { background: var(--border); }
+
+  /* ── Footer ── */
+  footer {
+    padding: 8px 28px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    letter-spacing: 0.08em;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">YOLO<span>/</span>WebRTC <span>·</span> Monitor</div>
+  <div class="header-status">
+    <span class="pill offline" id="statusPill">OFFLINE</span>
+  </div>
+</header>
+
+<main>
+  <div class="video-pane" id="videoPane">
+    <video id="remoteVideo" autoplay playsinline muted></video>
+
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+
+    <div class="live-badge" id="liveBadge">
+      <div class="pulse-dot"></div>
+      LIVE
+    </div>
+
+    <div class="no-signal" id="noSignal">
+      <svg class="ns-icon" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="4" y="12" width="56" height="40" rx="2" stroke="white" stroke-width="3"/>
+        <line x1="20" y1="52" x2="44" y2="52" stroke="white" stroke-width="3"/>
+        <line x1="32" y1="52" x2="32" y2="58" stroke="white" stroke-width="3"/>
+        <line x1="4" y1="4" x2="60" y2="60" stroke="white" stroke-width="3"/>
+      </svg>
+      <div class="ns-text">Awaiting stream</div>
+    </div>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="section-label">Connection</div>
+      <div class="stat-row">
+        <span class="stat-label">State</span>
+        <span class="stat-value" id="connState">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">ICE</span>
+        <span class="stat-value" id="iceState">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Codec</span>
+        <span class="stat-value accent2" id="codec">—</span>
+      </div>
+      <button id="connectBtn" onclick="connect()">Connect</button>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-label">Stream</div>
+      <div class="stat-row">
+        <span class="stat-label">Resolution</span>
+        <span class="stat-value accent" id="resolution">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">FPS</span>
+        <span class="stat-value accent" id="fps">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Bitrate</span>
+        <span class="stat-value" id="bitrate">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Packets lost</span>
+        <span class="stat-value warn" id="packetsLost">—</span>
+      </div>
+    </div>
+
+    <div class="section-label" style="padding: 14px 20px 0; font-size:10px; letter-spacing:.2em; color: var(--dim); text-transform:uppercase;">Event log</div>
+    <div class="log-area" id="logArea"></div>
+  </aside>
+</main>
+
+<footer>
+  <span>YOLOv8 · aiortc</span>
+  <span id="footerTime">—</span>
+</footer>
+
+<script>
+let pc = null;
+let statsInterval = null;
+let prevBytes = 0;
+let prevTs = 0;
+let frameCount = 0;
+let lastFrameTs = 0;
+
+function log(msg, type = 'info') {
+  const area = document.getElementById('logArea');
+  const now = new Date();
+  const t = now.toTimeString().slice(0,8);
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-time">${t}</span><span class="log-msg ${type}">${msg}</span>`;
+  area.appendChild(el);
+  area.scrollTop = area.scrollHeight;
+}
+
+function setStatus(state) {
+  const pill = document.getElementById('statusPill');
+  pill.textContent = state.toUpperCase();
+  pill.className = 'pill';
+  if (state === 'connected') pill.classList.add('online');
+  else if (state === 'connecting') pill.classList.add('buffering');
+  else pill.classList.add('offline');
+}
+
+function updateClock() {
+  document.getElementById('footerTime').textContent = new Date().toLocaleTimeString();
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+async function connect() {
+  if (pc) {
+    pc.close();
+    pc = null;
+    clearInterval(statsInterval);
+    statsInterval = null;
+  }
+
+  const btn = document.getElementById('connectBtn');
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+  setStatus('connecting');
+  log('Initiating WebRTC handshake…');
+
+  pc = new RTCPeerConnection({
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  });
+
+  pc.addTransceiver('video', { direction: 'recvonly' });
+
+  pc.oniceconnectionstatechange = () => {
+    const s = pc.iceConnectionState;
+    document.getElementById('iceState').textContent = s;
+    log(`ICE → ${s}`, s === 'connected' ? 'ok' : s === 'failed' ? 'warn' : 'info');
+  };
+
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState;
+    document.getElementById('connState').textContent = s;
+    setStatus(s);
+    log(`Peer connection → ${s}`, s === 'connected' ? 'ok' : s === 'failed' ? 'warn' : 'info');
+
+    if (s === 'connected') {
+      btn.textContent = 'Disconnect';
+      btn.disabled = false;
+      btn.onclick = disconnect;
+      document.getElementById('liveBadge').classList.add('visible');
+      document.getElementById('noSignal').classList.add('hidden');
+      startStats();
+    }
+    if (s === 'failed' || s === 'closed') {
+      resetUI();
+    }
+  };
+
+  pc.ontrack = (evt) => {
+    log('Video track received', 'ok');
+    const video = document.getElementById('remoteVideo');
+    video.srcObject = evt.streams[0];
+
+    // track FPS
+    video.requestVideoFrameCallback(function onFrame(now) {
+      if (lastFrameTs) {
+        const delta = now - lastFrameTs;
+        document.getElementById('fps').textContent = (1000 / delta).toFixed(1);
+      }
+      lastFrameTs = now;
+      video.requestVideoFrameCallback(onFrame);
+    });
+
+    video.addEventListener('loadedmetadata', () => {
+      document.getElementById('resolution').textContent =
+        `${video.videoWidth}×${video.videoHeight}`;
+    });
+  };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  try {
+    const resp = await fetch('/offer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sdp: offer.sdp, type: offer.type })
+    });
+    const answer = await resp.json();
+
+    // parse codec from SDP
+    const codecMatch = answer.sdp.match(/a=rtpmap:\d+ ([A-Z0-9]+)\//);
+    if (codecMatch) document.getElementById('codec').textContent = codecMatch[1];
+
+    await pc.setRemoteDescription(answer);
+    log('SDP exchange complete', 'ok');
+  } catch (e) {
+    log(`Offer failed: ${e.message}`, 'warn');
+    resetUI();
+  }
+}
+
+function disconnect() {
+  if (pc) { pc.close(); pc = null; }
+  clearInterval(statsInterval);
+  statsInterval = null;
+  resetUI();
+  log('Disconnected by user', 'warn');
+}
+
+function resetUI() {
+  setStatus('offline');
+  document.getElementById('liveBadge').classList.remove('visible');
+  document.getElementById('noSignal').classList.remove('hidden');
+  document.getElementById('connState').textContent = '—';
+  document.getElementById('iceState').textContent = '—';
+  const btn = document.getElementById('connectBtn');
+  btn.textContent = 'Connect';
+  btn.disabled = false;
+  btn.onclick = connect;
+}
+
+function startStats() {
+  statsInterval = setInterval(async () => {
+    if (!pc) return;
+    const stats = await pc.getStats();
+    stats.forEach(report => {
+      if (report.type === 'inbound-rtp' && report.kind === 'video') {
+        const bytes = report.bytesReceived;
+        const now = performance.now();
+        if (prevTs) {
+          const bps = ((bytes - prevBytes) * 8) / ((now - prevTs) / 1000);
+          document.getElementById('bitrate').textContent =
+            bps > 1e6 ? `${(bps/1e6).toFixed(2)} Mbps` : `${(bps/1e3).toFixed(0)} kbps`;
+        }
+        prevBytes = bytes;
+        prevTs = now;
+        document.getElementById('packetsLost').textContent = report.packetsLost ?? '0';
+      }
+    });
+  }, 1500);
+}
+</script>
+</body>
+</html>
+
